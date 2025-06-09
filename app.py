@@ -16,13 +16,14 @@ def load_data():
 
 df = load_data()
 
-# -------------------- 장르 목록 만들기 --------------------
+# -------------------- 장르 및 형식 목록 --------------------
 all_genres = sorted(set(g for gs in df["genre"] for g in gs.split(", ")))
+all_types = sorted(df["type"].unique())
 
 # -------------------- 사이드바 필터 --------------------
 st.sidebar.title("🎛️ 추천 조건 설정")
 selected_genres = st.sidebar.multiselect("🎭 장르", all_genres, default=["Action", "Comedy"])
-selected_type = st.sidebar.selectbox("📺 형식", sorted(df["type"].unique()))
+selected_types = st.sidebar.multiselect("📺 형식", all_types, default=["TV"])
 min_rating = st.sidebar.slider("⭐ 최소 평점", 0.0, 10.0, 7.0, step=0.1)
 min_members = st.sidebar.slider("👥 최소 인기도 (members)", 0, 1000000, 50000, step=10000)
 search_keyword = st.sidebar.text_input("🔍 제목 키워드 포함", "")
@@ -31,9 +32,9 @@ st.title("🎌 애니메이션 추천기")
 st.markdown("조건에 맞는 애니메이션을 추천하고, 유사한 작품도 찾아드릴게요!")
 
 # -------------------- 필터링 함수 --------------------
-def filter_anime(df, genres, anime_type, min_rating, min_members, keyword):
+def filter_anime(df, genres, types, min_rating, min_members, keyword):
     filtered = df[
-        (df["type"] == anime_type) &
+        (df["type"].isin(types)) &
         (df["rating"] >= min_rating) &
         (df["members"] >= min_members)
     ]
@@ -48,7 +49,7 @@ def filter_anime(df, genres, anime_type, min_rating, min_members, keyword):
     return filtered
 
 # -------------------- 추천 목록 만들기 --------------------
-filtered_df = filter_anime(df, selected_genres, selected_type, min_rating, min_members, search_keyword)
+filtered_df = filter_anime(df, selected_genres, selected_types, min_rating, min_members, search_keyword)
 
 if not filtered_df.empty:
     top_recommendations = filtered_df.sort_values(by="rating", ascending=False).head(10)
@@ -67,14 +68,17 @@ else:
                     "---")
 
     # -------------------- Plotly 시각화 --------------------
-    fig = px.scatter(
-        top_recommendations,
-        x="rating", y="members",
-        hover_data=["name"],
-        color="type",
-        title="📊 추천된 애니의 평점 vs 인기도"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    st.subheader("📊 추천 애니메이션의 평점 순위")
+    rating_bar = top_recommendations.sort_values(by="rating", ascending=False)
+    fig_rating = px.bar(rating_bar, x="name", y="rating", color="type", title="평점 높은 순", labels={"name": "애니메이션"})
+    fig_rating.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig_rating, use_container_width=True)
+
+    st.subheader("📊 추천 애니메이션의 인기도 순위")
+    members_bar = top_recommendations.sort_values(by="members", ascending=False)
+    fig_members = px.bar(members_bar, x="name", y="members", color="type", title="인기도 높은 순", labels={"name": "애니메이션"})
+    fig_members.update_layout(xaxis_tickangle=-45)
+    st.plotly_chart(fig_members, use_container_width=True)
 
     # -------------------- 유사도 기반 추천 --------------------
     st.subheader("🤝 유사한 애니메이션 추천")

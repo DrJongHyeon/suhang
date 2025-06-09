@@ -1,74 +1,99 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# 데이터 로딩
+# -------------------- 데이터 불러오기 --------------------
 @st.cache_data
 def load_data():
     df = pd.read_csv("anime.csv")
-    df = df.dropna(subset=["rating", "genre", "type"])
-    df = df[df["episodes"].apply(lambda x: x.isdigit())]  # 숫자 에피소드만
+    df = df.dropna(subset=["genre", "rating", "type", "name"])
+    df = df[df["episodes"].apply(lambda x: x.isdigit())]
     df["episodes"] = df["episodes"].astype(int)
+    df["genre"] = df["genre"].str.strip()
     return df
 
 df = load_data()
 
-st.title("📊 애니메이션 인기 분석 대시보드")
-st.markdown("분석 대상: [MyAnimeList 데이터셋](https://www.kaggle.com/datasets/CooperUnion/anime-recommendations-database)")
+# -------------------- 장르 전처리 --------------------
+all_genres = sorted(set(g for gs in df["genre"] for g in gs.split(", ")))
 
-# 1. 평점 vs 인기도
-fig1 = px.scatter(
-    df, x="rating", y="members",
-    hover_data=["name", "type"],
-    title="⭐ 평점 vs 인기도",
-    labels={"rating": "평점", "members": "인기도 (Members)"}
-)
-st.plotly_chart(fig1, use_container_width=True)
+# -------------------- 사이드바 --------------------
+st.sidebar.title("🎛️ 추천 조건 설정")
+selected_genres = st.sidebar.multiselect("🎭 장르", all_genres, default=["Action", "Comedy"])
+selected_type = st.sidebar.selectbox("📺 형식", sorted(df["type"].unique()))
+min_rating = st.sidebar.slider("⭐ 최소 평점", 0.0, 10.0, 7.0, 0.1)
+min_members = st.sidebar.slider("👥 최소 인기도 (members)", 0, 1000000, 50000, step=10000)
+search_keyword = st.sidebar.text_input("🔍 제목 키워드 포함", "")
 
-# 2. 에피소드 수 vs 인기도
-fig2 = px.scatter(
-    df, x="episodes", y="members",
-    hover_data=["name", "type"],
-    title="🎬 에피소드 수 vs 인기도",
-    labels={"episodes": "에피소드 수", "members": "인기도 (Members)"}
-)
-st.plotly_chart(fig2, use_container_width=True)
+st.title("🎌 애니메이션 추천기")
+st.markdown("조건에 맞는 애니메이션을 추천하고, 유사한 작품도 찾아드릴게요!")
 
-# 3. 타입별 평균 인기도
-type_avg = df.groupby("type")["members"].mean().reset_index().sort_values("members", ascending=False)
-fig3 = px.bar(
-    type_avg, x="type", y="members",
-    title="📺 애니 타입별 평균 인기도",
-    labels={"type": "애니 유형", "members": "평균 인기도"}
-)
-st.plotly_chart(fig3, use_container_width=True)
+# -------------------- 필터링 함수 --------------------
+def filter_anime(df, genres, anime_type, min_rating, min_members, keyword):
+    filtered = df[
+        (df["type"] == anime_type) &
+        (df["rating"] >= min_rating) &
+        (df["members"] >= min_members)
+    ]
+    if keyword:
+        filtered = filtered[filtered["name"].str.contains(keyword, case=False, na=False)]
 
-# 4. 장르별 평균 인기도 (장르 분할)
-from collections import defaultdict
-genre_members = defaultdict(list)
+    def has_genres(genre_str):
+        genre_set = set(genre_str.split(", "))
+        return all(g in genre_set for g in genres)
 
-for _, row in df.iterrows():
-    genres = row["genre"].split(", ")
-    for g in genres:
-        genre_members[g].append(row["members"])
+    filtered = filtered[filtered["genre"].apply(has_genres)]
+    return filtered
 
-genre_df = pd.DataFrame({
-    "genre": list(genre_members.keys()),
-    "avg_members": [sum(vals)/len(vals) for vals in genre_members.values()]
-}).sort_values("avg_members", ascending=False)
+# -------------------- 필터 적용 --------------------
+filtered_df = filter_anime(df, selected_genres, selected_type, min_rating, min_members, search_keyword)
+top_recommendations = filtered_df.sort_values(by="rating", ascending=False).head(10)
 
-fig4 = px.bar(
-    genre_df, x="genre", y="avg_members",
-    title="🎭 장르별 평균 인기도",
-    labels={"genre": "장르", "avg_members": "평균 인기도"}
-)
-st.plotly_chart(fig4, use_container_width=True)
+# -------------------- 결과 출력 --------------------
+st.subheader("📋 추천 애니메이션")
+if top_recommendations.empty:
+    st.warning("조건에 맞는 애니메이션이 없어요 😥")
+else:
+    for _, row in top_recommendations.iterrows():
+        st.markdown(f"**🎬 {row['name']}**  \n"
+                    f"⭐ 평점: {row['rating']} | 👥 Members: {row['members']} | 📺 Type: {row['type']}  \n"
+                    f"🎭 장르: {row['genre']}  \n"
+                    "---")
 
-# 결론 요약
-st.markdown("""
-### 🔍 요약
-- 평점이 높을수록 인기도도 증가하는 경향이 있음
-- TV 시리즈가 가장 높은 평균 인기도를 보임
-- 장르별로는 `Action`, `Shounen`, `Drama` 등이 인기 높은 경향
-""")
+# -------------------- Plotly 시각화 --------------------
+if not top_recommendations.empty:
+    fig = px.scatter(
+        top_recommendations,
+        x="rating", y="members",
+        hover_data=["name"],
+        color="type",
+        title="📊 추천된 애니의 평점 vs 인기도"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# -------------------- 사용자 선호 기반 유사도 추천 --------------------
+st.subheader("🤝 유사한 애니메이션 추천 (선호 기반)")
+
+if not top_recommendations.empty:
+    # 사용자 입력을 첫 번째 추천 작품으로 간주
+    target = top_recommendations.iloc[0]
+
+    # 벡터화: 장르 + 타입 + 평점 범주화
+    df["features"] = df["genre"] + " " + df["type"] + " rating_" + df["rating"].round().astype(str)
+    vectorizer = CountVectorizer()
+    feature_matrix = vectorizer.fit_transform(df["features"])
+
+    # 코사인 유사도 계산
+    index = df[df["name"] == target["name"]].index[0]
+    similarity = cosine_similarity(feature_matrix[index], feature_matrix).flatten()
+    df["similarity"] = similarity
+
+    similar_df = df[df["name"] != target["name"]].sort_values("similarity", ascending=False).head(5)
+
+    for _, row in similar_df.iterrows():
+        st.markdown(f"**🔁 {row['name']}**  \n"
+                    f"⭐ 평점: {row['rating']} | 👥 Members: {row['members']}  \n"
+                    f"🎭 장르: {row['genre']} | 📺 Type: {row['type']}  \n"
+                    "---")

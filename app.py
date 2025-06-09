@@ -16,14 +16,14 @@ def load_data():
 
 df = load_data()
 
-# -------------------- 장르 전처리 --------------------
+# -------------------- 장르 목록 만들기 --------------------
 all_genres = sorted(set(g for gs in df["genre"] for g in gs.split(", ")))
 
-# -------------------- 사이드바 --------------------
+# -------------------- 사이드바 필터 --------------------
 st.sidebar.title("🎛️ 추천 조건 설정")
 selected_genres = st.sidebar.multiselect("🎭 장르", all_genres, default=["Action", "Comedy"])
 selected_type = st.sidebar.selectbox("📺 형식", sorted(df["type"].unique()))
-min_rating = st.sidebar.slider("⭐ 최소 평점", 0.0, 10.0, 7.0, 0.1)
+min_rating = st.sidebar.slider("⭐ 최소 평점", 0.0, 10.0, 7.0, step=0.1)
 min_members = st.sidebar.slider("👥 최소 인기도 (members)", 0, 1000000, 50000, step=10000)
 search_keyword = st.sidebar.text_input("🔍 제목 키워드 포함", "")
 
@@ -47,14 +47,18 @@ def filter_anime(df, genres, anime_type, min_rating, min_members, keyword):
     filtered = filtered[filtered["genre"].apply(has_genres)]
     return filtered
 
-# -------------------- 필터 적용 --------------------
+# -------------------- 추천 목록 만들기 --------------------
 filtered_df = filter_anime(df, selected_genres, selected_type, min_rating, min_members, search_keyword)
-top_recommendations = filtered_df.sort_values(by="rating", ascending=False).head(10)
 
-# -------------------- 결과 출력 --------------------
+if not filtered_df.empty:
+    top_recommendations = filtered_df.sort_values(by="rating", ascending=False).head(10)
+else:
+    top_recommendations = pd.DataFrame()
+
+# -------------------- 추천 출력 --------------------
 st.subheader("📋 추천 애니메이션")
 if top_recommendations.empty:
-    st.warning("조건에 맞는 애니메이션이 없어요 😥")
+    st.warning("조건에 맞는 애니메이션이 없어요 😥\n필터를 조금 완화해 보세요.")
 else:
     for _, row in top_recommendations.iterrows():
         st.markdown(f"**🎬 {row['name']}**  \n"
@@ -62,8 +66,7 @@ else:
                     f"🎭 장르: {row['genre']}  \n"
                     "---")
 
-# -------------------- Plotly 시각화 --------------------
-if not top_recommendations.empty:
+    # -------------------- Plotly 시각화 --------------------
     fig = px.scatter(
         top_recommendations,
         x="rating", y="members",
@@ -73,21 +76,20 @@ if not top_recommendations.empty:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-# -------------------- 사용자 선호 기반 유사도 추천 --------------------
-st.subheader("🤝 유사한 애니메이션 추천 (선호 기반)")
+    # -------------------- 유사도 기반 추천 --------------------
+    st.subheader("🤝 유사한 애니메이션 추천")
 
-if not top_recommendations.empty:
-    # 사용자 입력을 첫 번째 추천 작품으로 간주
+    # 기준 작품: top 1
     target = top_recommendations.iloc[0]
 
-    # 벡터화: 장르 + 타입 + 평점 범주화
+    # 벡터화
     df["features"] = df["genre"] + " " + df["type"] + " rating_" + df["rating"].round().astype(str)
     vectorizer = CountVectorizer()
     feature_matrix = vectorizer.fit_transform(df["features"])
 
-    # 코사인 유사도 계산
-    index = df[df["name"] == target["name"]].index[0]
-    similarity = cosine_similarity(feature_matrix[index], feature_matrix).flatten()
+    # 유사도 계산
+    idx = df[df["name"] == target["name"]].index[0]
+    similarity = cosine_similarity(feature_matrix[idx], feature_matrix).flatten()
     df["similarity"] = similarity
 
     similar_df = df[df["name"] != target["name"]].sort_values("similarity", ascending=False).head(5)

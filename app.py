@@ -17,7 +17,7 @@ def load_data():
     df["genre"] = df["genre"].str.strip()
     df["genre_list"] = df["genre"].apply(lambda x: x.split(", "))
     
-    # Gintama 시리즈 통합
+    # Gintama 시리즈 통합 (members 높은 하나만 남김)
     df["series_name"] = df["name"].apply(lambda x: "Gintama" if re.search(r"(?i)gintama", x) else x)
     df = df.sort_values("members", ascending=False).drop_duplicates("series_name")
 
@@ -54,13 +54,13 @@ def filter_anime(df, genres, types, r_min, r_max, m_min, m_max, keyword):
 filtered_df = filter_anime(df, selected_genres, selected_types,
                            rating_min, rating_max, members_min, members_max, search_keyword)
 
-# -------------------- API 및 이미지 처리 설정 --------------------
+# -------------------- 이미지 및 워드클라우드 설정 --------------------
 EXCLUDED_IMAGE_GENRES = {"Hentai", "Ecchi", "Horror", "Yaoi"}
 DEFAULT_IMG_URL = "https://upload.wikimedia.org/wikipedia/commons/6/65/No-Image-Placeholder.svg"
 
 @st.cache_data(show_spinner=False)
 def get_anime_info(title):
-    """Jikan API로 이미지와 시놉시스를 가져옵니다."""
+    """Jikan API를 통해 애니 이미지 및 시놉시스를 가져옵니다."""
     try:
         res = requests.get("https://api.jikan.moe/v4/anime", params={"q": title, "limit": 1})
         if res.status_code == 200:
@@ -114,7 +114,7 @@ else:
         with col2:
             if synopsis and not genre_set.intersection(EXCLUDED_IMAGE_GENRES):
                 wc_buf = generate_wordcloud(synopsis)
-                st.image(wc_buf, caption="📚 워드클라우드 (시놉시스 기반)", use_column_width=True)
+                st.image(wc_buf, caption="📚 워드클라우드 (시놉시스 기반)", use_container_width=True)
             else:
                 st.write("워드클라우드 없음")
 

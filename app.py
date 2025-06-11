@@ -47,7 +47,7 @@ filtered_df = filter_anime(df, selected_genres, selected_types,
                            rating_min, rating_max, members_min, members_max, search_keyword)
 
 # -------------------- 이미지 출력 함수 (Jikan API) --------------------
-EXCLUDED_IMAGE_GENRES = {"Hentai", "Ecchi", "Horror"}
+EXCLUDED_IMAGE_GENRES = {"Hentai", "Ecchi", "Horror", "Yaoi"}
 
 @st.cache_data(show_spinner=False)
 def get_anime_image_url(title):

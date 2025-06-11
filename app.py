@@ -3,6 +3,9 @@ import pandas as pd
 import plotly.express as px
 import requests
 import re
+from wordcloud import WordCloud
+from io import BytesIO
+from PIL import Image
 
 # -------------------- 데이터 불러오기 --------------------
 @st.cache_data
@@ -16,8 +19,6 @@ def load_data():
     
     # Gintama 시리즈 통합
     df["series_name"] = df["name"].apply(lambda x: "Gintama" if re.search(r"(?i)gintama", x) else x)
-
-    # Gintama 중 가장 인기 있는 하나만 남기고 제거
     df = df.sort_values("members", ascending=False).drop_duplicates("series_name")
 
     return df
@@ -53,21 +54,32 @@ def filter_anime(df, genres, types, r_min, r_max, m_min, m_max, keyword):
 filtered_df = filter_anime(df, selected_genres, selected_types,
                            rating_min, rating_max, members_min, members_max, search_keyword)
 
-# -------------------- 이미지 출력 함수 (Jikan API + 기본 이미지 대체) --------------------
+# -------------------- API 및 이미지 처리 설정 --------------------
 EXCLUDED_IMAGE_GENRES = {"Hentai", "Ecchi", "Horror", "Yaoi"}
 DEFAULT_IMG_URL = "https://upload.wikimedia.org/wikipedia/commons/6/65/No-Image-Placeholder.svg"
 
 @st.cache_data(show_spinner=False)
-def get_anime_image_url(title):
+def get_anime_info(title):
+    """Jikan API로 이미지와 시놉시스를 가져옵니다."""
     try:
-        response = requests.get("https://api.jikan.moe/v4/anime", params={"q": title, "limit": 1})
-        if response.status_code == 200:
-            data = response.json()
+        res = requests.get("https://api.jikan.moe/v4/anime", params={"q": title, "limit": 1})
+        if res.status_code == 200:
+            data = res.json()
             if data["data"]:
-                return data["data"][0]["images"]["jpg"]["image_url"]
+                entry = data["data"][0]
+                img_url = entry["images"]["jpg"]["image_url"]
+                synopsis = entry.get("synopsis", "")
+                return img_url, synopsis
     except:
-        return None
-    return None
+        pass
+    return None, ""
+
+def generate_wordcloud(text):
+    wc = WordCloud(width=400, height=300, background_color="white").generate(text)
+    buf = BytesIO()
+    wc.to_image().save(buf, format="PNG")
+    buf.seek(0)
+    return buf
 
 # -------------------- 메인 출력 --------------------
 st.title("🎌 애니메이션 추천기")
@@ -86,11 +98,26 @@ else:
         st.markdown(f"⭐ 평점: {row['rating']} | 👥 Members: {row['members']} | 📺 Type: {row['type']}  \n🎭 장르: {genres}")
 
         genre_set = set(row["genre_list"])
-        img_url = None
         if not genre_set.intersection(EXCLUDED_IMAGE_GENRES):
-            img_url = get_anime_image_url(anime_name)
+            img_url, synopsis = get_anime_info(anime_name)
+            if not img_url:
+                img_url = DEFAULT_IMG_URL
+        else:
+            img_url = DEFAULT_IMG_URL
+            synopsis = ""
 
-        st.image(img_url if img_url else DEFAULT_IMG_URL, width=200)
+        # 두 열 배치 (이미지와 워드클라우드)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(img_url, width=250)
+
+        with col2:
+            if synopsis and not genre_set.intersection(EXCLUDED_IMAGE_GENRES):
+                wc_buf = generate_wordcloud(synopsis)
+                st.image(wc_buf, caption="📚 워드클라우드 (시놉시스 기반)", use_column_width=True)
+            else:
+                st.write("워드클라우드 없음")
+
         st.markdown("---")
 
     # -------------------- Plotly 시각화 --------------------

@@ -142,6 +142,7 @@ def generate_wordcloud(text):
 # ---------------------
 if recommend_mode == "선택한 필터 기반":
     st.subheader("🔎 필터 기반 추천 결과")
+    anime_name = row['name']
     if filtered_df.empty:
         st.warning("조건에 맞는 애니메이션이 없습니다.")
     else:

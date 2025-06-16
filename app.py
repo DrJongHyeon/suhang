@@ -29,7 +29,6 @@ def load_data():
     df = df.dropna(subset=["name"])  # 이름 없는 행 제거
     df["genre"] = df["genre"].fillna("").str.lower()
     df["type"] = df["type"].fillna("Unknown")
-    df["synopsis"] = df["synopsis"].fillna("")
 
     # Gintama 통합
     gintama_mask = df["name"].str.contains("Gintama", case=False, na=False)
@@ -111,7 +110,7 @@ def get_anime_image(title, genre=""):
         return None
 
 def generate_wordcloud(text):
-    if not text or not isinstance(text, str):
+    if not text:
         return None
     wc = WordCloud(width=600, height=400, background_color="white").generate(text)
     buf = BytesIO()
@@ -141,9 +140,9 @@ if recommend_mode == "선택한 필터 기반":
                     st.image("https://via.placeholder.com/150?text=No+Image", caption=row["name"])
             with col2:
                 st.markdown(f"**{row['name']}**  \n⭐ 평점: {row['rating']}  \n👥 인기도: {row['members']}  \n🎞️ 형식: {row['type']}")
-                wc_buf = generate_wordcloud(row["synopsis"])
+                wc_buf = generate_wordcloud(row["genre"])
                 if wc_buf:
-                    st.image(wc_buf, caption="📝 시놉시스 WordCloud", use_container_width=True)
+                    st.image(wc_buf, caption="📌 장르 WordCloud", use_container_width=True)
 
 # ---------------------
 # 2. 입력 기반 추천 (Content-based)
@@ -183,8 +182,8 @@ else:
                     st.image("https://via.placeholder.com/150?text=No+Image", caption=row["name"])
             with col2:
                 st.markdown(f"**{row['name']}**  \n⭐ 평점: {row['rating']}  \n👥 인기도: {row['members']}  \n🎞️ 형식: {row['type']}")
-                wc_buf = generate_wordcloud(row["synopsis"])
+                wc_buf = generate_wordcloud(row["genre"])
                 if wc_buf:
-                    st.image(wc_buf, caption="📝 시놉시스 WordCloud", use_container_width=True)
+                    st.image(wc_buf, caption="📌 장르 WordCloud", use_container_width=True)
     else:
         st.info("왼쪽에서 기준 애니메이션을 선택해주세요.")

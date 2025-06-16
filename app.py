@@ -11,6 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 # --- 기본 설정 ---
 st.set_page_config(page_title="애니 추천 웹앱", layout="wide")
 st.title("🎌 애니메이션 추천 웹앱")
+st.subheader("자료 출처: https://www.kaggle.com/datasets/CooperUnion/anime-recommendations-database?select=anime.csv")
 
 # --- 데이터 로딩 및 전처리 ---
 @st.cache_data

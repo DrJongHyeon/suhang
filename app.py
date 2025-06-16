@@ -133,7 +133,7 @@ if recommend_mode == "선택한 필터 기반":
         for _, row in filtered_df.sort_values("rating", ascending=False).head(10).iterrows():
             col1, col2 = st.columns([1, 2])
             with col1:
-                img_url = get_anime_image(row["name"], row["genre"])
+                img_url, synopsis = get_anime_info(anime_name)
                 if img_url:
                     st.image(img_url, caption=row["name"])
                 else:

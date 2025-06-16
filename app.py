@@ -1,136 +1,124 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import requests
-import re
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.preprocessing import MultiLabelBinarizer, MinMaxScaler
 from wordcloud import WordCloud
-from io import BytesIO
-from PIL import Image
+import matplotlib.pyplot as plt
 
-# -------------------- 데이터 불러오기 --------------------
+# Constants
+DEFAULT_IMG_URL = "https://via.placeholder.com/150"
+EXCLUDED_IMAGE_GENRES = {"Hentai", "Ecchi", "Horror", "Yaoi"}
+
 @st.cache_data
 def load_data():
     df = pd.read_csv("anime.csv")
-    df = df.dropna(subset=["genre", "rating", "type", "name"])
-    df = df[df["episodes"].apply(lambda x: x.isdigit())]
+    df.dropna(subset=["genre", "rating", "type"], inplace=True)
+    df = df[df["episodes"].astype(str).str.isdigit()]
     df["episodes"] = df["episodes"].astype(int)
-    df["genre"] = df["genre"].str.strip()
-    df["genre_list"] = df["genre"].apply(lambda x: x.split(", "))
-    
-    # Gintama 시리즈 통합 (members 높은 하나만 남김)
-    df["series_name"] = df["name"].apply(lambda x: "Gintama" if re.search(r"(?i)gintama", x) else x)
+    df["genre_list"] = df["genre"].apply(lambda x: [g.strip() for g in x.split(",")])
+    df["series_name"] = df["name"].str.extract(r"(^[^:!\(\)]*)")
     df = df.sort_values("members", ascending=False).drop_duplicates("series_name")
+    return df.reset_index(drop=True)
 
-    return df
-
-df = load_data()
-
-# -------------------- 필터 UI 설정 --------------------
-st.sidebar.title("🎛️ 추천 조건 설정")
-
-all_genres = sorted(set(g for genres in df["genre_list"] for g in genres))
-all_types = sorted(df["type"].dropna().unique())
-
-selected_genres = st.sidebar.multiselect("🎭 장르", all_genres, default=["Action", "Comedy"])
-selected_types = st.sidebar.multiselect("📺 형식", all_types)
-rating_min, rating_max = st.sidebar.slider("⭐ 평점 범위", 0.0, 10.0, (6.0, 10.0), step=0.1)
-members_min, members_max = st.sidebar.slider("👥 인기도 범위 (members)", 0, 1500000, (50000, 1000000), step=10000)
-search_keyword = st.sidebar.text_input("🔍 제목 키워드 포함", "")
-
-# -------------------- 필터링 함수 --------------------
-def filter_anime(df, genres, types, r_min, r_max, m_min, m_max, keyword):
-    filtered = df[
-        (df["rating"].between(r_min, r_max)) &
-        (df["members"].between(m_min, m_max))
-    ]
+def filter_anime(df, genres, types, rating_range, member_range, keyword):
+    filtered = df.copy()
+    if genres:
+        filtered = filtered[filtered["genre_list"].apply(lambda g: set(genres).issubset(g))]
     if types:
         filtered = filtered[filtered["type"].isin(types)]
     if keyword:
-        filtered = filtered[filtered["name"].str.contains(keyword, case=False, na=False)]
-    if genres:
-        filtered = filtered[filtered["genre_list"].apply(lambda g_list: all(g in g_list for g in genres))]
+        filtered = filtered[filtered["name"].str.contains(keyword, case=False)]
+    filtered = filtered[(filtered["rating"] >= rating_range[0]) & (filtered["rating"] <= rating_range[1])]
+    filtered = filtered[(filtered["members"] >= member_range[0]) & (filtered["members"] <= member_range[1])]
     return filtered
 
-filtered_df = filter_anime(df, selected_genres, selected_types,
-                           rating_min, rating_max, members_min, members_max, search_keyword)
-
-# -------------------- 이미지 및 워드클라우드 설정 --------------------
-EXCLUDED_IMAGE_GENRES = {"Hentai", "Ecchi", "Horror", "Yaoi"}
-DEFAULT_IMG_URL = "https://upload.wikimedia.org/wikipedia/commons/6/65/No-Image-Placeholder.svg"
-
-@st.cache_data(show_spinner=False)
 def get_anime_info(title):
-    """Jikan API를 통해 애니 이미지 및 시놉시스를 가져옵니다."""
     try:
-        res = requests.get("https://api.jikan.moe/v4/anime", params={"q": title, "limit": 1})
-        if res.status_code == 200:
-            data = res.json()
-            if data["data"]:
-                entry = data["data"][0]
-                img_url = entry["images"]["jpg"]["image_url"]
-                synopsis = entry.get("synopsis", "")
-                return img_url, synopsis
+        res = requests.get(f"https://api.jikan.moe/v4/anime", params={"q": title, "limit": 1}).json()
+        if res.get("data"):
+            anime = res["data"][0]
+            return anime.get("images", {}).get("jpg", {}).get("image_url", DEFAULT_IMG_URL), anime.get("synopsis", "")
     except:
         pass
-    return None, ""
+    return DEFAULT_IMG_URL, ""
 
 def generate_wordcloud(text):
     wc = WordCloud(width=400, height=300, background_color="white").generate(text)
-    buf = BytesIO()
-    wc.to_image().save(buf, format="PNG")
-    buf.seek(0)
-    return buf
+    fig, ax = plt.subplots()
+    ax.imshow(wc, interpolation="bilinear")
+    ax.axis("off")
+    st.pyplot(fig)
 
-# -------------------- 메인 출력 --------------------
-st.title("🎌 애니메이션 추천기")
-st.markdown("선택한 조건에 맞는 애니메이션을 추천해드립니다!")
+def build_similarity_model(df):
+    mlb = MultiLabelBinarizer()
+    genre_encoded = mlb.fit_transform(df["genre_list"])
+    df_features = pd.DataFrame(genre_encoded, index=df.index)
+    df_features["rating"] = df["rating"]
+    df_features["members"] = df["members"]
+    df_features["episodes"] = df["episodes"]
+    scaler = MinMaxScaler()
+    features_scaled = scaler.fit_transform(df_features)
+    return features_scaled
 
-if filtered_df.empty:
-    st.warning("조건에 맞는 애니메이션이 없어요 😥\n필터를 조금 완화해 보세요.")
-else:
+def recommend_similar(df, features_scaled, selected_titles, top_n=10):
+    indices = df[df["name"].isin(selected_titles)].index
+    if not len(indices):
+        return pd.DataFrame()
+    selected_vec = features_scaled[indices].mean(axis=0).reshape(1, -1)
+    sim_scores = cosine_similarity(selected_vec, features_scaled).flatten()
+    df["similarity"] = sim_scores
+    recs = df[~df["name"].isin(selected_titles)].sort_values("similarity", ascending=False).head(top_n)
+    return recs
+
+# Load data
+anime_df = load_data()
+all_genres = sorted(set(g for sub in anime_df["genre_list"] for g in sub))
+all_types = sorted(anime_df["type"].dropna().unique())
+features_scaled = build_similarity_model(anime_df)
+
+# UI
+st.title("🎌 Anime Recommender")
+mode = st.radio("Select Recommendation Mode", ["🎯 조건 기반 추천", "🤖 유사 애니 추천"])
+
+if mode == "🎯 조건 기반 추천":
+    genres = st.multiselect("장르 선택", all_genres)
+    types = st.multiselect("형식 선택", all_types)
+    rating_range = st.slider("평점 범위", 0.0, 10.0, (7.0, 10.0), step=0.1)
+    member_range = st.slider("인기도 (members) 범위", int(anime_df["members"].min()), int(anime_df["members"].max()), (10000, 500000))
+    keyword = st.text_input("제목 키워드 검색")
+
+    filtered_df = filter_anime(anime_df, genres, types, rating_range, member_range, keyword)
     top_recommendations = filtered_df.sort_values(by="rating", ascending=False).head(10)
 
-    st.subheader("📋 추천 애니메이션")
+else:
+    selected_titles = st.multiselect("좋아하는 애니메이션을 선택하세요", anime_df["name"].tolist())
+    top_recommendations = recommend_similar(anime_df.copy(), features_scaled, selected_titles)
+
+# 출력
+st.subheader("📌 추천 애니메이션")
+if top_recommendations.empty:
+    st.info("조건에 맞는 추천 결과가 없습니다.")
+else:
     for _, row in top_recommendations.iterrows():
-        anime_name = row['name']
-        genres = ", ".join(row['genre_list'])
-        st.markdown(f"**🎬 {anime_name}**")
-        st.markdown(f"⭐ 평점: {row['rating']} | 👥 Members: {row['members']} | 📺 Type: {row['type']}  \n🎭 장르: {genres}")
-
-        genre_set = set(row["genre_list"])
-        if not genre_set.intersection(EXCLUDED_IMAGE_GENRES):
-            img_url, synopsis = get_anime_info(anime_name)
-            if not img_url:
-                img_url = DEFAULT_IMG_URL
-        else:
-            img_url = DEFAULT_IMG_URL
-            synopsis = ""
-
-        # 두 열 배치 (이미지와 워드클라우드)
-        col1, col2 = st.columns(2)
+        if EXCLUDED_IMAGE_GENRES.intersection(set(row["genre_list"])):
+            continue
+        img_url, synopsis = get_anime_info(row["name"])
+        col1, col2 = st.columns([1, 2])
         with col1:
-            st.image(img_url, width=250)
-
+            st.image(img_url or DEFAULT_IMG_URL, caption=row["name"], use_container_width=True)
         with col2:
-            if synopsis and not genre_set.intersection(EXCLUDED_IMAGE_GENRES):
-                wc_buf = generate_wordcloud(synopsis)
-                st.image(wc_buf, caption="📚 워드클라우드 (시놉시스 기반)", use_container_width=True)
-            else:
-                st.write("워드클라우드 없음")
+            st.markdown(f"**평점:** {row['rating']} | **인기도:** {row['members']:,}")
+            st.markdown(synopsis if synopsis else "(시놉시스 정보 없음)")
+            if synopsis:
+                generate_wordcloud(synopsis)
 
-        st.markdown("---")
+    st.subheader("📊 평점순 Top 10")
+    fig1 = px.bar(top_recommendations.sort_values("rating"), x="rating", y="name", orientation="h", color="type")
+    st.plotly_chart(fig1, use_container_width=True)
 
-    # -------------------- Plotly 시각화 --------------------
-    st.subheader("📊 평점 높은 순")
-    fig_rating = px.bar(top_recommendations.sort_values(by="rating"),
-                        y="name", x="rating", color="type",
-                        orientation="h", title="평점 높은 애니메이션",
-                        labels={"name": "애니메이션", "rating": "평점"})
-    st.plotly_chart(fig_rating, use_container_width=True)
-
-    st.subheader("📊 인기도 높은 순")
-    fig_members = px.bar(top_recommendations.sort_values(by="members"),
-                         y="name", x="members", color="type",
-                         orientation="h", title="인기도 높은 애니메이션",
-                         labels={"name": "애니메이션", "members": "Members"})
-    st.plotly_chart(fig_members, use_container_width=True)
+    st.subheader("📊 인기도순 Top 10")
+    fig2 = px.bar(top_recommendations.sort_values("members"), x="members", y="name", orientation="h", color="type")
+    st.plotly_chart(fig2, use_container_width=True)

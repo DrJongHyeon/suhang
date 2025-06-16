@@ -64,7 +64,7 @@ def build_similarity_model(df):
     df_features.dropna(inplace=True)
 
     scaler = MinMaxScaler()
-    features_scaled = scaler.fit_transform(df_features)
+    features_scaled = scaler.fit_transform(df_features.to_numpy())  # 🔧 핵심 수정 부분
     return features_scaled, df_features.index
 
 def recommend_similar(df, features_scaled, valid_indices, selected_titles, top_n=10):

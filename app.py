@@ -139,10 +139,12 @@ if recommend_mode == "선택한 필터 기반":
                 else:
                     st.image("https://via.placeholder.com/150?text=No+Image", caption=row["name"])
             with col2:
-                st.markdown(f"**{row['name']}**  \n⭐ 평점: {row['rating']}  \n👥 인기도: {row['members']}  \n🎞️ 형식: {row['type']}")
-                wc_buf = generate_wordcloud(row["genre"])
-                if wc_buf:
-                    st.image(wc_buf, caption="📌 장르 WordCloud", use_container_width=True)
+                if synopsis and not genre_set.intersection(EXCLUDED_IMAGE_GENRES):
+                    wc_buf = generate_wordcloud(synopsis)
+                    st.image(wc_buf, caption="📚 워드클라우드 (시놉시스 기반)", use_container_width=True)
+                else:
+                    st.write("워드클라우드 없음")
+
 
 # ---------------------
 # 2. 입력 기반 추천 (Content-based)

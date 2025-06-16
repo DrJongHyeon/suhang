@@ -97,21 +97,6 @@ recommend_mode = st.radio("추천 방식 선택", ["선택한 필터 기반", "�
 # ---------------------
 EXCLUDED_GENRES_FOR_IMAGE = {"hentai", "ecchi", "horror", "yaoi"}
 
-def get_anime_info(title):
-    """Jikan API를 통해 애니 이미지 및 시놉시스를 가져옵니다."""
-    try:
-        res = requests.get("https://api.jikan.moe/v4/anime", params={"q": title, "limit": 1})
-        if res.status_code == 200:
-            data = res.json()
-            if data["data"]:
-                entry = data["data"][0]
-                img_url = entry["images"]["jpg"]["image_url"]
-                synopsis = entry.get("synopsis", "")
-                return img_url, synopsis
-    except:
-        pass
-    return None, ""
-
 def get_anime_image(title, genre=""):
     if any(bad in genre.lower() for bad in EXCLUDED_GENRES_FOR_IMAGE):
         return None
@@ -142,25 +127,22 @@ def generate_wordcloud(text):
 # ---------------------
 if recommend_mode == "선택한 필터 기반":
     st.subheader("🔎 필터 기반 추천 결과")
-    anime_name = row['name']
     if filtered_df.empty:
         st.warning("조건에 맞는 애니메이션이 없습니다.")
     else:
         for _, row in filtered_df.sort_values("rating", ascending=False).head(10).iterrows():
             col1, col2 = st.columns([1, 2])
             with col1:
-                img_url, synopsis = get_anime_info(anime_name)
+                img_url = get_anime_image(row["name"], row["genre"])
                 if img_url:
                     st.image(img_url, caption=row["name"])
                 else:
                     st.image("https://via.placeholder.com/150?text=No+Image", caption=row["name"])
             with col2:
-                if synopsis and not genre_set.intersection(EXCLUDED_IMAGE_GENRES):
-                    wc_buf = generate_wordcloud(synopsis)
-                    st.image(wc_buf, caption="📚 워드클라우드 (시놉시스 기반)", use_container_width=True)
-                else:
-                    st.write("워드클라우드 없음")
-
+                st.markdown(f"**{row['name']}**  \n⭐ 평점: {row['rating']}  \n👥 인기도: {row['members']}  \n🎞️ 형식: {row['type']}")
+                wc_buf = generate_wordcloud(row["genre"])
+                if wc_buf:
+                    st.image(wc_buf, caption="📌 장르 WordCloud", use_container_width=True)
 
 # ---------------------
 # 2. 입력 기반 추천 (Content-based)

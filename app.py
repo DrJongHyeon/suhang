@@ -56,18 +56,21 @@ def build_similarity_model(df):
     mlb = MultiLabelBinarizer()
     genre_encoded = mlb.fit_transform(df["genre_list"])
     df_features = pd.DataFrame(genre_encoded, index=df.index)
-    df_features["rating"] = df["rating"]
-    df_features["members"] = df["members"]
-    df_features["episodes"] = df["episodes"]
+    df_features["rating"] = pd.to_numeric(df["rating"], errors="coerce")
+    df_features["members"] = pd.to_numeric(df["members"], errors="coerce")
+    df_features["episodes"] = pd.to_numeric(df["episodes"], errors="coerce")
+    df_features.dropna(inplace=True)
+
     scaler = MinMaxScaler()
     features_scaled = scaler.fit_transform(df_features)
-    return features_scaled
+    return features_scaled, df_features.index
 
-def recommend_similar(df, features_scaled, selected_titles, top_n=10):
+def recommend_similar(df, features_scaled, valid_indices, selected_titles, top_n=10):
+    df = df.loc[valid_indices].copy()
     indices = df[df["name"].isin(selected_titles)].index
     if not len(indices):
         return pd.DataFrame()
-    selected_vec = features_scaled[indices].mean(axis=0).reshape(1, -1)
+    selected_vec = features_scaled[df.index.get_indexer(indices)].mean(axis=0).reshape(1, -1)
     sim_scores = cosine_similarity(selected_vec, features_scaled).flatten()
     df["similarity"] = sim_scores
     recs = df[~df["name"].isin(selected_titles)].sort_values("similarity", ascending=False).head(top_n)
@@ -77,7 +80,7 @@ def recommend_similar(df, features_scaled, selected_titles, top_n=10):
 anime_df = load_data()
 all_genres = sorted(set(g for sub in anime_df["genre_list"] for g in sub))
 all_types = sorted(anime_df["type"].dropna().unique())
-features_scaled = build_similarity_model(anime_df)
+features_scaled, valid_indices = build_similarity_model(anime_df)
 
 # UI
 st.title("🎌 Anime Recommender")
@@ -95,7 +98,7 @@ if mode == "🎯 조건 기반 추천":
 
 else:
     selected_titles = st.multiselect("좋아하는 애니메이션을 선택하세요", anime_df["name"].tolist())
-    top_recommendations = recommend_similar(anime_df.copy(), features_scaled, selected_titles)
+    top_recommendations = recommend_similar(anime_df.copy(), features_scaled, valid_indices, selected_titles)
 
 # 출력
 st.subheader("📌 추천 애니메이션")

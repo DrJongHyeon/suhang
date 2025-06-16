@@ -97,6 +97,21 @@ recommend_mode = st.radio("추천 방식 선택", ["선택한 필터 기반", "�
 # ---------------------
 EXCLUDED_GENRES_FOR_IMAGE = {"hentai", "ecchi", "horror", "yaoi"}
 
+def get_anime_info(title):
+    """Jikan API를 통해 애니 이미지 및 시놉시스를 가져옵니다."""
+    try:
+        res = requests.get("https://api.jikan.moe/v4/anime", params={"q": title, "limit": 1})
+        if res.status_code == 200:
+            data = res.json()
+            if data["data"]:
+                entry = data["data"][0]
+                img_url = entry["images"]["jpg"]["image_url"]
+                synopsis = entry.get("synopsis", "")
+                return img_url, synopsis
+    except:
+        pass
+    return None, ""
+
 def get_anime_image(title, genre=""):
     if any(bad in genre.lower() for bad in EXCLUDED_GENRES_FOR_IMAGE):
         return None
